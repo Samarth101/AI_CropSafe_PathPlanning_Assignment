@@ -44,11 +44,15 @@ app.add_middleware(
 
 
 @app.get("/api/health")
+@app.get("/health")
+@app.get("/api")
+@app.get("/")
 def health_check() -> Dict[str, str]:
     return {"status": "ok", "backend": "fastapi"}
 
 
 @app.post("/api/evaluate")
+@app.post("/evaluate")
 def evaluate_field(req: EvaluateRequest) -> Dict[str, Any]:
     if not req.grid or not req.grid[0]:
         raise HTTPException(status_code=400, detail="Grid cannot be empty.")

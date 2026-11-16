@@ -99,7 +99,13 @@ export default function App() {
         });
         if (!res.ok) {
           const errBody = await res.json().catch(() => ({}));
-          throw new Error(errBody.error || `Server error (${res.status})`);
+          const message =
+            errBody.error ||
+            (typeof errBody.detail === 'string'
+              ? errBody.detail
+              : errBody.detail?.[0]?.msg) ||
+            `Server error (${res.status})`;
+          throw new Error(message);
         }
         const data: EvaluationResponse = await res.json();
         setEvaluation(data);

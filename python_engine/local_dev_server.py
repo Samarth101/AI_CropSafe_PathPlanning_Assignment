@@ -28,13 +28,13 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
-        if self.path == "/api/health":
+        if self.path in ("/api/health", "/health", "/api", "/"):
             self._send_json(200, {"status": "ok", "backend": "python-dev-fallback"})
             return
         self._send_json(404, {"error": "Not found"})
 
     def do_POST(self) -> None:
-        if self.path != "/api/evaluate":
+        if self.path not in ("/api/evaluate", "/evaluate"):
             self._send_json(404, {"error": "Not found"})
             return
         try:
