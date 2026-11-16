@@ -51,9 +51,13 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
+class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+
+
 def main() -> None:
-    port = int(os.environ.get("PYTHON_API_PORT", "8000"))
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    port = int(os.environ.get("PYTHON_API_PORT", "8787"))
+    server = ReusableThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"Python API running on http://127.0.0.1:{port}")
     server.serve_forever()
 

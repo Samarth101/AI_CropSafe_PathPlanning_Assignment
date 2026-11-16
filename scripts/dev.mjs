@@ -13,28 +13,29 @@ function hasUvicornAndFastapi() {
   return check.status === 0;
 }
 
+const pyPort = process.env.PYTHON_API_PORT || '8787';
 const useUvicorn = hasUvicornAndFastapi();
 const pyArgs = useUvicorn
-  ? ['-m', 'uvicorn', 'api.index:app', '--host', '127.0.0.1', '--port', '8000']
+  ? ['-m', 'uvicorn', 'api.index:app', '--host', '127.0.0.1', '--port', pyPort]
   : [path.join(rootDir, 'python_engine', 'local_dev_server.py')];
 
 console.log(
   useUvicorn
-    ? '[dev] Starting FastAPI backend via uvicorn on http://127.0.0.1:8000'
-    : '[dev] Starting Python backend on http://127.0.0.1:8000 (uvicorn not installed locally)'
+    ? `[dev] Starting FastAPI backend via uvicorn on http://127.0.0.1:${pyPort}`
+    : `[dev] Starting Python backend on http://127.0.0.1:${pyPort}`
 );
 
 const pyProc = spawn('python3', pyArgs, {
   cwd: rootDir,
   stdio: 'inherit',
-  env: { ...process.env, PYTHON_API_PORT: '8000' },
+  env: { ...process.env, PYTHON_API_PORT: pyPort },
 });
 
 const viteBin = path.join(rootDir, 'node_modules', 'vite', 'bin', 'vite.js');
 const viteProc = spawn(
   process.execPath,
   [viteBin, '--port=3000', '--host=0.0.0.0'],
-  { cwd: rootDir, stdio: 'inherit', env: process.env }
+  { cwd: rootDir, stdio: 'inherit', env: { ...process.env, PYTHON_API_PORT: pyPort } }
 );
 
 function shutdown(signal) {
