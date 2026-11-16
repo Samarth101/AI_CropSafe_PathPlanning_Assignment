@@ -19,8 +19,8 @@ function parseMap(rows: string[]): CellType[][] {
 export const FIELD_PRESETS: FieldPreset[] = [
   {
     id: 'furrow-lanes',
-    name: '01. Furrow Lanes',
-    subtitle: 'Balanced potato rows, central protected nursery, and hidden ambush boulders.',
+    name: '01. Farm Tracks (Balanced)',
+    subtitle: 'Potato rows, a delicate seedling patch in the middle, and 2 surprise rocks.',
     grid: parseMap([
       'S..P......P....P',
       '.#.P.PPPP.P.PP.P',
@@ -38,8 +38,8 @@ export const FIELD_PRESETS: FieldPreset[] = [
   },
   {
     id: 'protected-nursery',
-    name: '02. Protected Nursery',
-    subtitle: 'Tests Task 4: standard shortest route hugs seedling beds while Crop-Safe A* detours cleanly.',
+    name: '02. Seedling Nursery',
+    subtitle: 'Great for Task 4: shows how Crop-Safe A* gives delicate seedlings extra space.',
     grid: parseMap([
       'S.........P....P',
       '.PPPP.PPP.P.PP.P',
@@ -57,8 +57,8 @@ export const FIELD_PRESETS: FieldPreset[] = [
   },
   {
     id: 'ambush-ridge',
-    name: '03. Ambush Ridge',
-    subtitle: 'Tests Task 5: multiple hidden obstacles trigger sequential online A* replans.',
+    name: '03. Surprise Rock Maze',
+    subtitle: 'Great for Task 5: several hidden rocks force the robot to rethink its path mid-trip.',
     grid: parseMap([
       'S...P.......P..P',
       '.PP.P.PPPPP.P..P',

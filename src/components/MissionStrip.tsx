@@ -13,63 +13,63 @@ interface MissionItem {
 const MISSIONS: MissionItem[] = [
   {
     id: 'TASK_1',
-    shortTitle: '01. Field Grid',
-    taskLabel: 'Environment',
+    shortTitle: '1. Field Map',
+    taskLabel: 'Build the grid',
     requirements: [
-      'Represent safe lanes, potato rows, protected beds, and obstacles on a 2D grid.',
-      'Mark the robot Start Depot and Monitoring Destination clearly.',
+      'Show safe lanes, potato plants, protected seedlings, and rocks on a 2D map.',
+      'Mark where the robot starts and where it needs to go.',
     ],
-    howToComplete: 'Paint any tile or load a field preset in the Field Arena.',
+    howToComplete: 'Click a paint tool or choose a preset map on the right.',
   },
   {
     id: 'TASK_2',
-    shortTitle: '02. Formulation',
-    taskLabel: 'State Space',
+    shortTitle: '2. Robot Rules',
+    taskLabel: 'How it thinks',
     requirements: [
-      'Specify Initial State, 4-way Actions, Transition Model, and Goal Test.',
-      'Define the step-cost function and admissible Manhattan heuristic.',
+      'List where the robot starts, which 4 directions it can move, and how it reaches the goal.',
+      'Explain how step cost and straight-line distance estimates work.',
     ],
-    howToComplete: 'Open Formulation and click "Mark Formulation Reviewed".',
+    howToComplete: 'Open "How It Thinks" and click "Got It, Mark Complete".',
   },
   {
     id: 'TASK_3',
-    shortTitle: '03. 4 Search Algos',
-    taskLabel: 'BFS/DFS/GBFS/A*',
+    shortTitle: '3. Search Methods',
+    taskLabel: '4 AI explorers',
     requirements: [
-      'Implement BFS, DFS, Greedy Best-First Search, and A* Search.',
-      'Explain and visualize heuristic-guided frontier expansion.',
+      'Run Breadth-First, Depth-First, Greedy Best-First, and A* Search.',
+      'Watch how each one explores tiles before picking a route.',
     ],
-    howToComplete: 'Select or animate a search algorithm in Search mode.',
+    howToComplete: 'Pick any search method and press "Play Animation".',
   },
   {
     id: 'TASK_4',
-    shortTitle: '04. Crop-Safe Cost',
-    taskLabel: 'Buffer Penalty',
+    shortTitle: '4. Crop Safety',
+    taskLabel: 'Protect seedlings',
     requirements: [
-      'Block entry into obstacles and crop-protection cells completely.',
-      'Penalize lanes bordering protected beds so safer detours are preferred.',
+      'Never let the robot drive onto rocks or protected seedling beds.',
+      'Add an extra penalty cost next to seedlings so the robot stays safely away.',
     ],
-    howToComplete: 'Switch to Crop-Safe mode or adjust the proximity penalty slider.',
+    howToComplete: 'Click "Crop Safety" mode and slide the extra penalty up or down.',
   },
   {
     id: 'TASK_5',
-    shortTitle: '05. Online Replan',
-    taskLabel: 'Hidden Obstacle',
+    shortTitle: '5. Live Detour',
+    taskLabel: 'Hidden rocks',
     requirements: [
-      'Start with at least one unknown obstacle hidden from the robot.',
-      'Detect it within sensor range, update the map, and replan via A*.',
+      'Hide at least one surprise rock that the robot does not know about at first.',
+      'Let the robot spot it with its sensor, update its map, and plan a new route.',
     ],
-    howToComplete: 'Run Start Rover Mission to completion in Replan mode.',
+    howToComplete: 'Switch to "Live Detour" and press "Start Robot Drive".',
   },
   {
     id: 'TASK_6',
-    shortTitle: '06. Benchmark',
-    taskLabel: 'Comparison Table',
+    shortTitle: '6. Results Table',
+    taskLabel: 'Compare all',
     requirements: [
-      'Compare path length, expanded nodes, runtime, and goal reachability.',
-      'Report replanning operations for the online-obstacle experiment.',
+      'Compare steps taken, tiles checked, speed, and whether the robot arrived.',
+      'Count how many times the robot had to change routes during the detour test.',
     ],
-    howToComplete: 'Click "Run All Trials" or open the Benchmark comparison tab.',
+    howToComplete: 'Click "Compare All 6" in the top bar or open "Results Table".',
   },
 ];
 
@@ -99,18 +99,17 @@ const MissionTooltip: React.FC<MissionTooltipProps> = ({ mission, align }) => {
       id={`tooltip-${mission.id}`}
       className={`pointer-events-none absolute top-full mt-2.5 z-40 w-72 sm:w-80 p-3.5 bg-[#0b120e] border border-amber-400/55 rounded-xl shadow-2xl transition-all duration-150 ${alignClass}`}
     >
-      {/* Top Caret Pointer */}
       <span
         aria-hidden="true"
         className={`absolute -top-[6px] w-2.5 h-2.5 rotate-45 bg-[#0b120e] border-l border-t border-amber-400/55 ${caretClass}`}
       />
 
       <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-emerald-900/60">
-        <span className="font-display font-semibold text-xs text-emerald-50">
+        <span className="font-display font-bold text-sm text-emerald-50">
           {mission.shortTitle}
         </span>
         <span className="text-[11px] font-medium text-amber-300">
-          Pending · {mission.taskLabel}
+          To Do · {mission.taskLabel}
         </span>
       </div>
 
@@ -126,7 +125,7 @@ const MissionTooltip: React.FC<MissionTooltipProps> = ({ mission, align }) => {
       </ul>
 
       <div className="mt-2.5 pt-2 border-t border-emerald-900/50 text-[11px] text-emerald-300/90">
-        <span className="font-semibold text-amber-300">How to clear: </span>
+        <span className="font-semibold text-amber-300">Try this: </span>
         {mission.howToComplete}
       </div>
     </div>
@@ -152,12 +151,16 @@ export const MissionStrip: React.FC<MissionStripProps> = ({ completed, onSelectM
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 text-xs text-emerald-200/90">
-          <span className="font-display font-semibold text-sm text-emerald-50">
-            Assignment Milestone Progress
+          <span className="font-display font-bold text-base text-emerald-50">
+            Your 6 Assignment Quests
           </span>
           <span aria-hidden="true" className="text-emerald-700">·</span>
-          <span className="font-mono tabular-nums text-amber-300">
-            {doneCount} / 6 Completed
+          <span className="font-mono tabular-nums text-amber-300 font-medium">
+            {doneCount} of 6 Done
+          </span>
+          <span aria-hidden="true" className="text-emerald-700 hidden sm:inline">·</span>
+          <span className="text-emerald-300/75 hidden sm:inline">
+            Hover any unfinished quest to see what it needs
           </span>
         </div>
 
@@ -167,17 +170,16 @@ export const MissionStrip: React.FC<MissionStripProps> = ({ completed, onSelectM
             onClick={() => onSelectMission(nextPending.id)}
             className="flex items-center gap-1.5 text-xs font-medium text-amber-300 hover:text-amber-200 transition-colors cursor-pointer whitespace-nowrap"
           >
-            <span>Next: {nextPending.shortTitle}</span>
+            <span>Jump to {nextPending.shortTitle}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         ) : (
           <span className="text-xs font-medium text-emerald-400">
-            All 6 Milestones Verified
+            All 6 Quests Complete!
           </span>
         )}
       </div>
 
-      {/* 6-Stage Segmented Progress Bar */}
       <div className="grid grid-cols-6 gap-1.5" aria-hidden="true">
         {MISSIONS.map((m) => (
           <div
@@ -189,7 +191,6 @@ export const MissionStrip: React.FC<MissionStripProps> = ({ completed, onSelectM
         ))}
       </div>
 
-      {/* Interactive Milestone Buttons + Floating Requirements Tooltip */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         {MISSIONS.map((m, idx) => {
           const isDone = completed[m.id];
@@ -225,7 +226,7 @@ export const MissionStrip: React.FC<MissionStripProps> = ({ completed, onSelectM
                   <Circle className="w-4 h-4 text-amber-400/75 shrink-0" />
                 )}
                 <div className="min-w-0">
-                  <div className="font-display font-semibold text-xs truncate">{m.shortTitle}</div>
+                  <div className="font-display font-bold text-xs truncate">{m.shortTitle}</div>
                   <div className="text-[11px] text-emerald-400/75 truncate">{m.taskLabel}</div>
                 </div>
               </button>

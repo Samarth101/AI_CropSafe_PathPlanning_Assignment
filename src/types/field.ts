@@ -9,7 +9,7 @@ export type CellType =
 
 export type AlgorithmId = 'BFS' | 'DFS' | 'GBFS' | 'ASTAR' | 'ASTAR_SAFE' | 'ASTAR_REPLAN';
 
-export type PrimaryView = 'ARENA' | 'FORMULATION' | 'BENCHMARK' | 'SUBMISSION';
+export type PrimaryView = 'ARENA' | 'FORMULATION' | 'BENCHMARK';
 
 export type ArenaMode = 'SEARCH' | 'CROP_COMPARE' | 'REPLAN';
 
@@ -77,17 +77,17 @@ export interface OnlineRunResult {
   initialPath: Coord[];
 }
 
+export interface EvaluationResponse {
+  searchResult: SearchResult;
+  compareStandardResult: SearchResult;
+  compareSafeResult: SearchResult;
+  onlineRun: OnlineRunResult;
+  benchmarkResults: SearchResult[];
+}
+
 export interface FieldPreset {
   id: string;
   name: string;
   subtitle: string;
   grid: CellType[][];
-}
-
-export interface TeamMember {
-  id: number;
-  name: string;
-  rollNumber: string;
-  roleTitle: string;
-  tasksCovered: string;
 }

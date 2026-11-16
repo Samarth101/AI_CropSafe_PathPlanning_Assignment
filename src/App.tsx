@@ -3,18 +3,15 @@ import {
   AlgorithmId,
   ArenaMode,
   CellType,
+  EvaluationResponse,
   MissionId,
   PrimaryView,
-  SearchResult,
-  TeamMember,
 } from './types/field';
 import { FIELD_PRESETS, cloneGrid } from './engine/presets';
-import { runOnlineReplanning, runSearch } from './engine/pathfinding';
 import { FieldCanvas } from './components/FieldCanvas';
 import { MissionStrip } from './components/MissionStrip';
 import { FormulationView } from './components/FormulationView';
 import { BenchmarkView } from './components/BenchmarkView';
-import { SubmissionView } from './components/SubmissionView';
 import { soundFx } from './utils/sound';
 import {
   FastForward,
@@ -26,38 +23,14 @@ import {
   VolumeX,
 } from 'lucide-react';
 
-const INITIAL_MEMBERS: TeamMember[] = [
-  {
-    id: 1,
-    name: '',
-    rollNumber: '',
-    roleTitle: 'Field Environment, Problem Formulation & Crop-Safe Cost',
-    tasksCovered: 'Tasks 1, 2 & 4',
-  },
-  {
-    id: 2,
-    name: '',
-    rollNumber: '',
-    roleTitle: 'BFS, DFS, Greedy Best-First & Heuristic Design',
-    tasksCovered: 'Task 3 (BFS/DFS/GBFS)',
-  },
-  {
-    id: 3,
-    name: '',
-    rollNumber: '',
-    roleTitle: 'A* Search, Online Replanning, Benchmarking & Docs',
-    tasksCovered: 'Tasks 3 (A*), 5 & 6',
-  },
-];
-
 const BRUSH_OPTIONS: { type: CellType; label: string; swatch: string }[] = [
   { type: 'SAFE', label: 'Safe Lane', swatch: 'bg-[#251f19] border-emerald-700/60' },
-  { type: 'POTATO_ROW', label: 'Potato Row', swatch: 'bg-[#1e3a24] border-lime-500/60' },
+  { type: 'POTATO_ROW', label: 'Potato Plants', swatch: 'bg-[#1e3a24] border-lime-500/60' },
   { type: 'PROTECTED', label: 'Protected Bed', swatch: 'bg-[#0d4a42] border-emerald-400/70' },
-  { type: 'OBSTACLE', label: 'Obstacle', swatch: 'bg-[#334155] border-slate-400/70' },
-  { type: 'UNKNOWN_OBSTACLE', label: 'Unknown ?', swatch: 'bg-[#3b2a1a] border-amber-400/80 border-dashed' },
-  { type: 'START', label: 'Start Depot', swatch: 'bg-[#0c4a6e] border-sky-400/80' },
-  { type: 'GOAL', label: 'Goal Station', swatch: 'bg-[#713f12] border-amber-400/90' },
+  { type: 'OBSTACLE', label: 'Known Rock', swatch: 'bg-[#334155] border-slate-400/70' },
+  { type: 'UNKNOWN_OBSTACLE', label: 'Hidden Rock ?', swatch: 'bg-[#3b2a1a] border-amber-400/80 border-dashed' },
+  { type: 'START', label: 'Start Spot', swatch: 'bg-[#0c4a6e] border-sky-400/80' },
+  { type: 'GOAL', label: 'Target Goal', swatch: 'bg-[#713f12] border-amber-400/90' },
 ];
 
 export default function App() {
@@ -72,6 +45,10 @@ export default function App() {
   const [penaltyWeight, setPenaltyWeight] = useState<number>(5);
   const [sensorRadius, setSensorRadius] = useState<number>(2);
 
+  const [evaluation, setEvaluation] = useState<EvaluationResponse | null>(null);
+  const [evalError, setEvalError] = useState<string | null>(null);
+  const [isEvaluating, setIsEvaluating] = useState<boolean>(true);
+
   const [searchStepIdx, setSearchStepIdx] = useState<number>(0);
   const [isSearchPlaying, setIsSearchPlaying] = useState<boolean>(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
@@ -80,7 +57,6 @@ export default function App() {
   const [isReplanPlaying, setIsReplanPlaying] = useState<boolean>(false);
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-  const [members, setMembers] = useState<TeamMember[]>(INITIAL_MEMBERS);
 
   const [completedMissions, setCompletedMissions] = useState<Record<MissionId, boolean>>({
     TASK_1: true,
@@ -104,62 +80,59 @@ export default function App() {
     [presetId]
   );
 
-  // Compute active single search result (Task 3)
-  const searchResult = useMemo(() => {
-    const effectivePenalty = selectedAlgo === 'ASTAR_SAFE' ? penaltyWeight : 0;
-    return runSearch(grid, selectedAlgo, {
-      penaltyWeight: effectivePenalty,
-      treatUnknownAsObstacle: false,
-    });
-  }, [grid, selectedAlgo, penaltyWeight]);
-
-  // Compute Crop-Safe comparison pair (Task 4)
-  const compareStandardResult = useMemo(
-    () =>
-      runSearch(grid, 'ASTAR', {
-        penaltyWeight: 0,
-        treatUnknownAsObstacle: false,
-        labelOverride: 'A* Search (Standard)',
-      }),
-    [grid]
+  // Fetch all search, comparison, replanning, and benchmark results from the Python engine
+  const fetchPythonEvaluation = useCallback(
+    async (signal?: AbortSignal) => {
+      setIsEvaluating(true);
+      setEvalError(null);
+      try {
+        const res = await fetch('/api/evaluate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            grid,
+            selectedAlgo,
+            penaltyWeight,
+            sensorRadius,
+          }),
+          signal,
+        });
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}));
+          throw new Error(errBody.error || `Server error (${res.status})`);
+        }
+        const data: EvaluationResponse = await res.json();
+        setEvaluation(data);
+        setIsEvaluating(false);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setEvalError(err instanceof Error ? err.message : 'Could not run Python engine.');
+        setIsEvaluating(false);
+      }
+    },
+    [grid, selectedAlgo, penaltyWeight, sensorRadius]
   );
 
-  const compareSafeResult = useMemo(
-    () =>
-      runSearch(grid, 'ASTAR_SAFE', {
-        penaltyWeight,
-        treatUnknownAsObstacle: false,
-        labelOverride: 'A* Search (Crop-Safe)',
-      }),
-    [grid, penaltyWeight]
-  );
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchPythonEvaluation(controller.signal);
+    return () => controller.abort();
+  }, [fetchPythonEvaluation]);
 
-  // Compute Online Obstacle Detection & Replanning trace (Task 5)
-  const onlineRun = useMemo(
-    () => runOnlineReplanning(grid, penaltyWeight, sensorRadius),
-    [grid, penaltyWeight, sensorRadius]
-  );
+  const searchResult = evaluation?.searchResult ?? null;
+  const compareStandardResult = evaluation?.compareStandardResult ?? null;
+  const compareSafeResult = evaluation?.compareSafeResult ?? null;
+  const onlineRun = evaluation?.onlineRun ?? null;
+  const benchmarkResults = evaluation?.benchmarkResults ?? [];
 
-  // Compute full benchmark suite (Task 6)
-  const benchmarkResults: SearchResult[] = useMemo(() => {
-    const bfsRes = runSearch(grid, 'BFS', { penaltyWeight });
-    const dfsRes = runSearch(grid, 'DFS', { penaltyWeight });
-    const gbfsRes = runSearch(grid, 'GBFS', { penaltyWeight });
-    const astarStd = runSearch(grid, 'ASTAR', {
-      penaltyWeight: 0,
-      labelOverride: 'A* Search (Standard)',
-    });
-    const astarSafe = runSearch(grid, 'ASTAR_SAFE', {
-      penaltyWeight,
-      labelOverride: 'A* Search (Crop-Safe)',
-    });
-    return [bfsRes, dfsRes, gbfsRes, astarStd, astarSafe, onlineRun.summary];
-  }, [grid, penaltyWeight, onlineRun]);
-
-  // Keep step index clamped when grid or algo changes
+  // Keep step index clamped when Python result updates
   useEffect(() => {
     setIsSearchPlaying(false);
-    setSearchStepIdx(Math.max(0, searchResult.steps.length - 1));
+    if (searchResult) {
+      setSearchStepIdx(Math.max(0, searchResult.steps.length - 1));
+    } else {
+      setSearchStepIdx(0);
+    }
   }, [searchResult]);
 
   useEffect(() => {
@@ -167,9 +140,9 @@ export default function App() {
     setReplanFrameIdx(0);
   }, [onlineRun]);
 
-  // Search playback timer
+  // Search animation timer
   useEffect(() => {
-    if (!isSearchPlaying || arenaMode !== 'SEARCH') return;
+    if (!isSearchPlaying || arenaMode !== 'SEARCH' || !searchResult) return;
     const maxIdx = Math.max(0, searchResult.steps.length - 1);
     const delayMs = playbackSpeed === 8 ? 35 : playbackSpeed === 3 ? 90 : 210;
 
@@ -191,9 +164,9 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [isSearchPlaying, arenaMode, searchResult, playbackSpeed, markMission]);
 
-  // Replan playback timer
+  // Replan animation timer
   useEffect(() => {
-    if (!isReplanPlaying || arenaMode !== 'REPLAN') return;
+    if (!isReplanPlaying || arenaMode !== 'REPLAN' || !onlineRun) return;
     const maxIdx = Math.max(0, onlineRun.frames.length - 1);
     const delayMs = playbackSpeed === 8 ? 90 : playbackSpeed === 3 ? 200 : 380;
 
@@ -227,7 +200,6 @@ export default function App() {
     setGrid((prev) => {
       const next = cloneGrid(prev);
       if (activeBrush === 'START' || activeBrush === 'GOAL') {
-        // Ensure unique START and GOAL
         for (let rr = 0; rr < next.length; rr++) {
           for (let cc = 0; cc < next[rr].length; cc++) {
             if (next[rr][cc] === activeBrush) {
@@ -236,7 +208,6 @@ export default function App() {
           }
         }
       } else if (next[r][c] === 'START' || next[r][c] === 'GOAL') {
-        // Protect START and GOAL from accidental overwrite
         return prev;
       }
       next[r][c] = activeBrush;
@@ -285,6 +256,7 @@ export default function App() {
   };
 
   const handleRunFullBenchmark = () => {
+    fetchPythonEvaluation();
     markMission('TASK_3');
     markMission('TASK_4');
     markMission('TASK_5');
@@ -294,15 +266,17 @@ export default function App() {
   };
 
   const currentSearchStep =
-    arenaMode === 'SEARCH' && searchResult.steps.length > 0
+    arenaMode === 'SEARCH' && searchResult && searchResult.steps.length > 0
       ? searchResult.steps[Math.min(searchStepIdx, searchResult.steps.length - 1)]
       : null;
 
   const isSearchAtEnd =
-    searchResult.steps.length === 0 || searchStepIdx >= searchResult.steps.length - 1;
+    !searchResult ||
+    searchResult.steps.length === 0 ||
+    searchStepIdx >= searchResult.steps.length - 1;
 
   const currentOnlineFrame =
-    arenaMode === 'REPLAN' && onlineRun.frames.length > 0
+    arenaMode === 'REPLAN' && onlineRun && onlineRun.frames.length > 0
       ? onlineRun.frames[Math.min(replanFrameIdx, onlineRun.frames.length - 1)]
       : null;
 
@@ -311,23 +285,20 @@ export default function App() {
       {/* Top Bar Contract: Single row, 3 clean zones separated by gap-8 */}
       <header className="border-b border-emerald-900/60 bg-[#0b120e]">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-8">
-          {/* Zone 1: Single-element wordmark */}
           <button
             type="button"
             onClick={() => setPrimaryView('ARENA')}
-            className="font-display text-xl font-bold tracking-tight text-emerald-50 whitespace-nowrap shrink-0 cursor-pointer hover:text-amber-300 transition-colors"
+            className="font-display text-2xl font-bold tracking-wide text-emerald-50 whitespace-nowrap shrink-0 cursor-pointer hover:text-amber-300 transition-colors"
           >
             CropSafe Ops
           </button>
 
-          {/* Zone 2: Clean single-line text nav links */}
-          <nav className="hidden md:flex items-center gap-7 text-sm font-medium">
+          <nav className="hidden md:flex items-center gap-8 text-sm font-medium">
             {(
               [
                 { id: 'ARENA', label: 'Field Arena' },
-                { id: 'FORMULATION', label: 'Formulation' },
-                { id: 'BENCHMARK', label: 'Benchmark' },
-                { id: 'SUBMISSION', label: 'Team & Python' },
+                { id: 'FORMULATION', label: 'How It Thinks' },
+                { id: 'BENCHMARK', label: 'Results Table' },
               ] as { id: PrimaryView; label: string }[]
             ).map((item) => (
               <button
@@ -349,26 +320,23 @@ export default function App() {
             ))}
           </nav>
 
-          {/* Zone 3: 1 primary CTA button */}
           <div className="flex items-center shrink-0">
             <button
               type="button"
               onClick={handleRunFullBenchmark}
               className="px-4 py-2 text-xs sm:text-sm font-semibold bg-amber-400 text-[#0d1511] rounded-lg hover:bg-amber-300 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              Run All Trials
+              Compare All 6
             </button>
           </div>
         </div>
 
-        {/* Mobile Nav Fallback */}
-        <div className="md:hidden flex items-center gap-4 px-4 pb-2.5 overflow-x-auto text-xs font-medium">
+        <div className="md:hidden flex items-center gap-5 px-4 pb-2.5 overflow-x-auto text-xs font-medium">
           {(
             [
               { id: 'ARENA', label: 'Field Arena' },
-              { id: 'FORMULATION', label: 'Formulation' },
-              { id: 'BENCHMARK', label: 'Benchmark' },
-              { id: 'SUBMISSION', label: 'Team & Python' },
+              { id: 'FORMULATION', label: 'How It Thinks' },
+              { id: 'BENCHMARK', label: 'Results Table' },
             ] as { id: PrimaryView; label: string }[]
           ).map((item) => (
             <button
@@ -391,9 +359,22 @@ export default function App() {
       <main className="flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 py-5 space-y-5">
         <MissionStrip completed={completedMissions} onSelectMission={handleSelectMission} />
 
+        {evalError && (
+          <div className="p-3.5 bg-rose-950/60 border border-rose-500/50 rounded-xl text-sm text-rose-200 flex items-center justify-between gap-4">
+            <span>Python engine error: {evalError}</span>
+            <button
+              type="button"
+              onClick={() => fetchPythonEvaluation()}
+              className="px-3 py-1 bg-rose-500/20 hover:bg-rose-500/30 rounded text-xs font-medium cursor-pointer"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {primaryView === 'ARENA' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-            {/* Left/Center Interactive Stage */}
+            {/* Left/Center Stage */}
             <div className="lg:col-span-8 space-y-4">
               <FieldCanvas
                 grid={grid}
@@ -409,48 +390,51 @@ export default function App() {
                 showPathOverlay={isSearchAtEnd}
               />
 
-              {/* Live Metrics & Event Readout Bar */}
+              {/* Live Readout Bar */}
               {arenaMode === 'SEARCH' && (
                 <div className="p-4 bg-[#131e18] border border-emerald-900/60 rounded-xl flex flex-wrap items-center justify-between gap-4">
                   <div className="space-y-0.5 min-w-0">
                     <div className="text-xs text-emerald-400">
-                      {searchResult.label} · Step{' '}
-                      <span className="font-mono tabular-nums">
-                        {Math.min(searchStepIdx + 1, Math.max(1, searchResult.steps.length))} /{' '}
-                        {Math.max(1, searchResult.steps.length)}
+                      {searchResult ? searchResult.label : 'Calculating in Python...'} · Step{' '}
+                      <span className="tabular-nums">
+                        {searchResult
+                          ? `${Math.min(searchStepIdx + 1, Math.max(1, searchResult.steps.length))} / ${Math.max(1, searchResult.steps.length)}`
+                          : '...'}
                       </span>
                     </div>
                     <div className="text-sm text-emerald-100 truncate">
-                      {currentSearchStep?.note ??
-                        (searchResult.reached
-                          ? 'Path calculated.'
-                          : 'Destination unreachable from Start.')}
+                      {isEvaluating && !searchResult
+                        ? 'Running Python search engine...'
+                        : currentSearchStep?.note ??
+                          (searchResult?.reached
+                            ? 'Safe route found!'
+                            : 'Goal cannot be reached on this map.')}
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-5 font-mono text-xs tabular-nums">
+                  <div className="flex flex-wrap items-center gap-5 text-xs tabular-nums">
                     <div>
-                      <div className="text-emerald-400/75">Length</div>
+                      <div className="text-emerald-400/75">Steps</div>
                       <div className="text-sm font-semibold text-emerald-50">
-                        {searchResult.reached ? `${searchResult.pathLength} steps` : 'Blocked'}
+                        {searchResult?.reached ? `${searchResult.pathLength} steps` : 'Blocked'}
                       </div>
                     </div>
                     <div>
                       <div className="text-emerald-400/75">Total Cost</div>
                       <div className="text-sm font-semibold text-amber-300">
-                        {searchResult.reached ? searchResult.totalCost : '-'}
+                        {searchResult?.reached ? searchResult.totalCost : '-'}
                       </div>
                     </div>
                     <div>
-                      <div className="text-emerald-400/75">Expanded</div>
+                      <div className="text-emerald-400/75">Tiles Checked</div>
                       <div className="text-sm font-semibold text-cyan-300">
-                        {searchResult.expandedNodes}
+                        {searchResult?.expandedNodes ?? '-'}
                       </div>
                     </div>
                     <div>
-                      <div className="text-emerald-400/75">Time</div>
+                      <div className="text-emerald-400/75">Python Time</div>
                       <div className="text-sm font-semibold text-emerald-100">
-                        {searchResult.executionTimeMs.toFixed(3)} ms
+                        {searchResult ? `${searchResult.executionTimeMs.toFixed(3)} ms` : '...'}
                       </div>
                     </div>
                   </div>
@@ -461,30 +445,28 @@ export default function App() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="p-4 bg-[#131e18] border border-rose-500/35 rounded-xl space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-display font-semibold text-rose-300 text-sm">
-                        Standard A* (Penalty = 0)
+                      <span className="font-display font-bold text-rose-300 text-sm">
+                        Normal A* (Ignores Seedling Buffer)
                       </span>
-                      <span className="font-mono text-xs text-rose-200/80 tabular-nums">
-                        Dashed Coral Path
-                      </span>
+                      <span className="text-xs text-rose-200/80">Dashed Coral</span>
                     </div>
-                    <div className="grid grid-cols-3 gap-2 font-mono text-xs tabular-nums pt-1">
+                    <div className="grid grid-cols-3 gap-2 text-xs tabular-nums pt-1">
                       <div>
                         <div className="text-emerald-400/70">Steps</div>
                         <div className="text-sm font-semibold text-emerald-50">
-                          {compareStandardResult.reached ? compareStandardResult.pathLength : '-'}
+                          {compareStandardResult?.reached ? compareStandardResult.pathLength : '-'}
                         </div>
                       </div>
                       <div>
-                        <div className="text-emerald-400/70">Near-Crop</div>
+                        <div className="text-emerald-400/70">Near Seedlings</div>
                         <div className="text-sm font-semibold text-rose-300">
-                          {compareStandardResult.riskSteps} cells
+                          {compareStandardResult?.riskSteps ?? 0} tiles
                         </div>
                       </div>
                       <div>
-                        <div className="text-emerald-400/70">Expanded</div>
+                        <div className="text-emerald-400/70">Checked</div>
                         <div className="text-sm font-semibold text-emerald-100">
-                          {compareStandardResult.expandedNodes}
+                          {compareStandardResult?.expandedNodes ?? '-'}
                         </div>
                       </div>
                     </div>
@@ -492,30 +474,28 @@ export default function App() {
 
                   <div className="p-4 bg-[#131e18] border border-emerald-500/45 rounded-xl space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-display font-semibold text-emerald-300 text-sm">
+                      <span className="font-display font-bold text-emerald-300 text-sm">
                         Crop-Safe A* (Penalty = +{penaltyWeight})
                       </span>
-                      <span className="font-mono text-xs text-emerald-200/80 tabular-nums">
-                        Solid Emerald Path
-                      </span>
+                      <span className="text-xs text-emerald-200/80">Solid Green</span>
                     </div>
-                    <div className="grid grid-cols-3 gap-2 font-mono text-xs tabular-nums pt-1">
+                    <div className="grid grid-cols-3 gap-2 text-xs tabular-nums pt-1">
                       <div>
                         <div className="text-emerald-400/70">Steps</div>
                         <div className="text-sm font-semibold text-emerald-50">
-                          {compareSafeResult.reached ? compareSafeResult.pathLength : '-'}
+                          {compareSafeResult?.reached ? compareSafeResult.pathLength : '-'}
                         </div>
                       </div>
                       <div>
-                        <div className="text-emerald-400/70">Near-Crop</div>
+                        <div className="text-emerald-400/70">Near Seedlings</div>
                         <div className="text-sm font-semibold text-emerald-300">
-                          {compareSafeResult.riskSteps} cells
+                          {compareSafeResult?.riskSteps ?? 0} tiles
                         </div>
                       </div>
                       <div>
                         <div className="text-emerald-400/70">Total Cost</div>
                         <div className="text-sm font-semibold text-amber-300">
-                          {compareSafeResult.totalCost}
+                          {compareSafeResult?.totalCost ?? '-'}
                         </div>
                       </div>
                     </div>
@@ -527,35 +507,42 @@ export default function App() {
                 <div className="p-4 bg-[#131e18] border border-emerald-900/60 rounded-xl flex flex-wrap items-center justify-between gap-4">
                   <div className="space-y-0.5 min-w-0 flex-1">
                     <div className="text-xs text-amber-300 font-medium">
-                      Frame{' '}
-                      <span className="font-mono tabular-nums">
-                        {replanFrameIdx + 1} / {Math.max(1, onlineRun.frames.length)}
+                      Step{' '}
+                      <span className="tabular-nums">
+                        {replanFrameIdx + 1} / {Math.max(1, onlineRun?.frames.length ?? 1)}
                       </span>
                       {' · '}
-                      Status: {currentOnlineFrame?.status ?? 'READY'}
+                      {currentOnlineFrame?.status === 'DETECTED_REPLAN'
+                        ? 'Surprise Rock Found! Replanning'
+                        : currentOnlineFrame?.status === 'GOAL_REACHED'
+                        ? 'Arrived at Goal!'
+                        : currentOnlineFrame?.status === 'NO_PATH'
+                        ? 'Path Blocked'
+                        : 'Driving'}
                     </div>
                     <div className="text-sm text-emerald-100">
-                      {currentOnlineFrame?.eventMessage ?? 'Press Start Rover to run dynamic obstacle detection.'}
+                      {currentOnlineFrame?.eventMessage ??
+                        'Press "Start Robot Drive" to watch the robot spot hidden rocks.'}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-5 font-mono text-xs tabular-nums shrink-0">
+                  <div className="flex items-center gap-5 text-xs tabular-nums shrink-0">
                     <div>
-                      <div className="text-emerald-400/75">Replans</div>
+                      <div className="text-emerald-400/75">Detours</div>
                       <div className="text-sm font-semibold text-amber-300">
                         {currentOnlineFrame?.replanCount ?? 0}
                       </div>
                     </div>
                     <div>
-                      <div className="text-emerald-400/75">Discovered</div>
+                      <div className="text-emerald-400/75">Rocks Found</div>
                       <div className="text-sm font-semibold text-rose-300">
                         {currentOnlineFrame?.discoveredKeys.length ?? 0}
                       </div>
                     </div>
                     <div>
-                      <div className="text-emerald-400/75">Final Steps</div>
+                      <div className="text-emerald-400/75">Total Steps</div>
                       <div className="text-sm font-semibold text-emerald-300">
-                        {onlineRun.summary.reached ? onlineRun.summary.pathLength : 'Blocked'}
+                        {onlineRun?.summary.reached ? onlineRun.summary.pathLength : 'Blocked'}
                       </div>
                     </div>
                   </div>
@@ -565,15 +552,15 @@ export default function App() {
 
             {/* Right Control Deck */}
             <aside className="lg:col-span-4 space-y-4">
-              {/* Arena Mode Switch */}
-              <div className="p-3 bg-[#131e18] border border-emerald-900/60 rounded-xl space-y-3">
-                <div className="text-xs font-medium text-emerald-300">Simulation Mode</div>
+              {/* Mode Switch */}
+              <div className="p-4 bg-[#131e18] border border-emerald-900/60 rounded-xl space-y-3">
+                <div className="text-xs font-medium text-emerald-300">What Do You Want to Test?</div>
                 <div className="grid grid-cols-3 gap-1 p-1 bg-[#0b120f] rounded-lg">
                   {(
                     [
                       { id: 'SEARCH', label: 'Search' },
-                      { id: 'CROP_COMPARE', label: 'Crop-Safe' },
-                      { id: 'REPLAN', label: 'Replan' },
+                      { id: 'CROP_COMPARE', label: 'Crop Safety' },
+                      { id: 'REPLAN', label: 'Live Detour' },
                     ] as { id: ArenaMode; label: string }[]
                   ).map((m) => (
                     <button
@@ -596,19 +583,19 @@ export default function App() {
                   ))}
                 </div>
 
-                {/* Mode 1 Controls: Search Algorithms (Task 3) */}
+                {/* Mode 1: Search Algorithms (Task 3) */}
                 {arenaMode === 'SEARCH' && (
                   <div className="space-y-3 pt-1">
                     <div className="text-xs font-medium text-emerald-300">
-                      Algorithm (Task 3)
+                      Choose How the Robot Searches (Task 3)
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       {(
                         [
-                          { id: 'BFS', label: 'BFS (Queue)' },
-                          { id: 'DFS', label: 'DFS (Stack)' },
+                          { id: 'BFS', label: 'Breadth-First (BFS)' },
+                          { id: 'DFS', label: 'Depth-First (DFS)' },
                           { id: 'GBFS', label: 'Greedy Best-First' },
-                          { id: 'ASTAR_SAFE', label: 'A* (Crop-Safe)' },
+                          { id: 'ASTAR_SAFE', label: 'A* Smart Search' },
                         ] as { id: AlgorithmId; label: string }[]
                       ).map((alg) => (
                         <button
@@ -629,11 +616,12 @@ export default function App() {
                       ))}
                     </div>
 
-                    {/* Step Playback Controls */}
                     <div className="flex items-center gap-2 pt-1">
                       <button
                         type="button"
+                        disabled={!searchResult || searchResult.steps.length === 0}
                         onClick={() => {
+                          if (!searchResult) return;
                           if (isSearchPlaying) {
                             setIsSearchPlaying(false);
                           } else {
@@ -644,7 +632,7 @@ export default function App() {
                             markMission('TASK_3');
                           }
                         }}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-500 text-[#0b120e] font-semibold text-xs rounded-lg hover:bg-emerald-400 transition-colors cursor-pointer whitespace-nowrap"
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-500 text-[#0b120e] font-semibold text-xs rounded-lg hover:bg-emerald-400 transition-colors cursor-pointer whitespace-nowrap disabled:opacity-50"
                       >
                         {isSearchPlaying ? (
                           <>
@@ -652,15 +640,17 @@ export default function App() {
                           </>
                         ) : (
                           <>
-                            <Play className="w-3.5 h-3.5 fill-current" /> Animate Search
+                            <Play className="w-3.5 h-3.5 fill-current" /> Play Animation
                           </>
                         )}
                       </button>
 
                       <button
                         type="button"
-                        title="Step Forward"
+                        title="Next Step"
+                        disabled={!searchResult}
                         onClick={() => {
+                          if (!searchResult) return;
                           setIsSearchPlaying(false);
                           setSearchStepIdx((i) =>
                             Math.min(Math.max(0, searchResult.steps.length - 1), i + 1)
@@ -668,27 +658,29 @@ export default function App() {
                           soundFx.playStep();
                           markMission('TASK_3');
                         }}
-                        className="p-2 bg-[#0e1713] border border-emerald-800 rounded-lg text-emerald-200 hover:border-amber-400 cursor-pointer"
+                        className="p-2 bg-[#0e1713] border border-emerald-800 rounded-lg text-emerald-200 hover:border-amber-400 cursor-pointer disabled:opacity-50"
                       >
                         <SkipForward className="w-4 h-4" />
                       </button>
 
                       <button
                         type="button"
-                        title="Jump to Result"
+                        title="Skip to End"
+                        disabled={!searchResult}
                         onClick={() => {
+                          if (!searchResult) return;
                           setIsSearchPlaying(false);
                           setSearchStepIdx(Math.max(0, searchResult.steps.length - 1));
                           markMission('TASK_3');
                         }}
-                        className="p-2 bg-[#0e1713] border border-emerald-800 rounded-lg text-emerald-200 hover:border-amber-400 cursor-pointer"
+                        className="p-2 bg-[#0e1713] border border-emerald-800 rounded-lg text-emerald-200 hover:border-amber-400 cursor-pointer disabled:opacity-50"
                       >
                         <FastForward className="w-4 h-4" />
                       </button>
 
                       <button
                         type="button"
-                        title="Reset Playback"
+                        title="Back to Start"
                         onClick={() => {
                           setIsSearchPlaying(false);
                           setSearchStepIdx(0);
@@ -701,15 +693,15 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Mode 2 Controls: Crop-Safe Planning (Task 4) */}
+                {/* Mode 2: Crop-Safe Planning (Task 4) */}
                 {arenaMode === 'CROP_COMPARE' && (
                   <div className="space-y-3 pt-1">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-medium text-emerald-200">
-                        Crop-Protection Proximity Penalty
+                        Extra Penalty Next to Seedlings
                       </span>
-                      <span className="font-mono font-semibold text-amber-300 tabular-nums">
-                        +{penaltyWeight} cost
+                      <span className="font-semibold text-amber-300 tabular-nums">
+                        +{penaltyWeight} points
                       </span>
                     </div>
                     <input
@@ -725,20 +717,23 @@ export default function App() {
                       className="w-full accent-amber-400 cursor-pointer"
                     />
                     <p className="text-xs text-emerald-300/80 leading-relaxed">
-                      Cells adjacent to Protected Crop beds incur <span className="font-mono text-amber-200">+{penaltyWeight}</span> extra cost. Watch the solid emerald Crop-Safe A* route steer clear of sensitive beds while Standard A* (dashed coral) hugs the edge.
+                      Walking right beside protected seedling beds costs{' '}
+                      <span className="text-amber-200 font-medium">+{penaltyWeight}</span> extra
+                      points. Move the slider to watch the green Crop-Safe A* line pick a wider,
+                      safer lane than the dashed coral line.
                     </p>
                   </div>
                 )}
 
-                {/* Mode 3 Controls: Online Obstacle Detection & Replanning (Task 5) */}
+                {/* Mode 3: Online Replanning (Task 5) */}
                 {arenaMode === 'REPLAN' && (
                   <div className="space-y-3 pt-1">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-medium text-emerald-200">
-                        Rover Sensor Scan Radius
+                        How Far the Robot Can See Ahead
                       </span>
-                      <span className="font-mono font-semibold text-amber-300 tabular-nums">
-                        {sensorRadius} cells (Manhattan)
+                      <span className="font-semibold text-amber-300 tabular-nums">
+                        {sensorRadius} tiles
                       </span>
                     </div>
                     <input
@@ -754,7 +749,9 @@ export default function App() {
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
+                        disabled={!onlineRun || onlineRun.frames.length === 0}
                         onClick={() => {
+                          if (!onlineRun) return;
                           if (isReplanPlaying) {
                             setIsReplanPlaying(false);
                           } else {
@@ -764,23 +761,25 @@ export default function App() {
                             setIsReplanPlaying(true);
                           }
                         }}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-amber-400 text-[#0d1511] font-semibold text-xs rounded-lg hover:bg-amber-300 transition-colors cursor-pointer whitespace-nowrap"
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-amber-400 text-[#0d1511] font-semibold text-xs rounded-lg hover:bg-amber-300 transition-colors cursor-pointer whitespace-nowrap disabled:opacity-50"
                       >
                         {isReplanPlaying ? (
                           <>
-                            <Pause className="w-3.5 h-3.5 fill-current" /> Pause Rover
+                            <Pause className="w-3.5 h-3.5 fill-current" /> Pause Robot
                           </>
                         ) : (
                           <>
-                            <Play className="w-3.5 h-3.5 fill-current" /> Start Rover Mission
+                            <Play className="w-3.5 h-3.5 fill-current" /> Start Robot Drive
                           </>
                         )}
                       </button>
 
                       <button
                         type="button"
-                        title="Step Rover"
+                        title="Step Forward"
+                        disabled={!onlineRun}
                         onClick={() => {
+                          if (!onlineRun) return;
                           setIsReplanPlaying(false);
                           setReplanFrameIdx((i) => {
                             const next = Math.min(Math.max(0, onlineRun.frames.length - 1), i + 1);
@@ -795,14 +794,14 @@ export default function App() {
                             return next;
                           });
                         }}
-                        className="p-2 bg-[#0e1713] border border-emerald-800 rounded-lg text-emerald-200 hover:border-amber-400 cursor-pointer"
+                        className="p-2 bg-[#0e1713] border border-emerald-800 rounded-lg text-emerald-200 hover:border-amber-400 cursor-pointer disabled:opacity-50"
                       >
                         <SkipForward className="w-4 h-4" />
                       </button>
 
                       <button
                         type="button"
-                        title="Reset Rover"
+                        title="Restart Drive"
                         onClick={() => {
                           setIsReplanPlaying(false);
                           setReplanFrameIdx(0);
@@ -813,14 +812,13 @@ export default function App() {
                       </button>
                     </div>
 
-                    {/* Event Log */}
                     <div className="p-2.5 bg-[#0b120f] border border-emerald-900/60 rounded-lg space-y-1.5 max-h-36 overflow-y-auto">
                       <div className="text-[11px] font-medium text-emerald-400">
-                        Replanning Event Log ({onlineRun.events.length} triggered)
+                        Detour Log ({onlineRun?.events.length ?? 0} replans needed)
                       </div>
-                      {onlineRun.events.length === 0 ? (
+                      {!onlineRun || onlineRun.events.length === 0 ? (
                         <div className="text-xs text-emerald-400/70">
-                          No route-blocking unknown obstacles encountered on current layout. Paint an Unknown ? obstacle onto the initial route to test replanning!
+                          No hidden rocks blocked the path on this map. Paint a &ldquo;Hidden Rock ?&rdquo; onto the yellow line to see the robot detour!
                         </div>
                       ) : (
                         onlineRun.events.map((ev) => (
@@ -828,7 +826,7 @@ export default function App() {
                             key={ev.frameIndex}
                             className="text-xs text-amber-200/90 leading-snug border-t border-emerald-900/40 pt-1"
                           >
-                            #{ev.replanNumber}: {ev.message}
+                            Detour #{ev.replanNumber}: {ev.message}
                           </div>
                         ))
                       )}
@@ -836,7 +834,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Speed & Sound row */}
+                {/* Speed & Sound */}
                 <div className="flex items-center justify-between pt-2 border-t border-emerald-900/50 text-xs">
                   <div className="flex items-center gap-1.5">
                     <span className="text-emerald-400">Speed:</span>
@@ -845,9 +843,9 @@ export default function App() {
                         key={spd}
                         type="button"
                         onClick={() => setPlaybackSpeed(spd)}
-                        className={`px-2 py-1 rounded font-mono cursor-pointer ${
+                        className={`px-2 py-1 rounded cursor-pointer ${
                           playbackSpeed === spd
-                            ? 'bg-emerald-800 text-emerald-50'
+                            ? 'bg-emerald-800 text-emerald-50 font-semibold'
                             : 'text-emerald-300/70 hover:text-emerald-100'
                         }`}
                       >
@@ -863,7 +861,7 @@ export default function App() {
                   >
                     {soundEnabled ? (
                       <>
-                        <Volume2 className="w-3.5 h-3.5 text-emerald-400" /> Audio On
+                        <Volume2 className="w-3.5 h-3.5 text-emerald-400" /> Sound On
                       </>
                     ) : (
                       <>
@@ -874,11 +872,11 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Field Scenario Presets & Tile Brush Editor (Task 1) */}
+              {/* Field Presets & Map Brush Tools (Task 1) */}
               <div className="p-4 bg-[#131e18] border border-emerald-900/60 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-emerald-300">
-                    Field Scenarios (Task 1)
+                    Pick a Field Map (Task 1)
                   </span>
                   <button
                     type="button"
@@ -901,7 +899,7 @@ export default function App() {
                           : 'bg-[#0e1713] border-emerald-900/50 text-emerald-200/80 hover:border-emerald-700'
                       }`}
                     >
-                      <div className="font-display font-semibold text-xs">{p.name}</div>
+                      <div className="font-display font-bold text-xs">{p.name}</div>
                       <div className="text-[11px] text-emerald-400/75 line-clamp-1">
                         {p.subtitle}
                       </div>
@@ -911,14 +909,14 @@ export default function App() {
 
                 <div className="pt-2 border-t border-emerald-900/50 space-y-2">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-medium text-emerald-300">Tile Paint Brush</span>
+                    <span className="font-medium text-emerald-300">Paint on the Map</span>
                     {activeBrush && (
                       <button
                         type="button"
                         onClick={() => setActiveBrush(null)}
                         className="text-emerald-400/80 hover:text-emerald-200 cursor-pointer"
                       >
-                        Disable Brush
+                        Stop Painting
                       </button>
                     )}
                   </div>
@@ -963,20 +961,6 @@ export default function App() {
             penaltyWeight={penaltyWeight}
             sensorRadius={sensorRadius}
             onRunBenchmark={handleRunFullBenchmark}
-          />
-        )}
-
-        {primaryView === 'SUBMISSION' && (
-          <SubmissionView
-            members={members}
-            onUpdateMember={(id, field, value) =>
-              setMembers((prev) =>
-                prev.map((m) => (m.id === id ? { ...m, [field]: value } : m))
-              )
-            }
-            results={benchmarkResults}
-            presetName={currentPreset.name}
-            penaltyWeight={penaltyWeight}
           />
         )}
       </main>

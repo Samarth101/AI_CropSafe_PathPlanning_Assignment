@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 @theme {
-  --font-display: "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Mystery Quest", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Fira Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Fira Sans", ui-monospace, system-ui, sans-serif;
 }
 
 @layer base {
@@ -15,6 +15,7 @@
 
   h1, h2, h3, .font-display {
     font-family: var(--font-display);
+    letter-spacing: 0.02em;
   }
 
   code, pre, .font-mono {
