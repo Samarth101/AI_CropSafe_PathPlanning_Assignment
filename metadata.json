@@ -1,0 +1,6 @@
+{
+  "name": "CropSafe Ops",
+  "description": "Gamified AI path-planning simulator for autonomous potato-field navigation featuring BFS, DFS, Greedy Best-First, Crop-Safe A*, dynamic obstacle replanning, and a Python submission kit.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
